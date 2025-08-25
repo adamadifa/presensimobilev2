@@ -1,10 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, WebViewNavigation } from 'react-native-webview';
-import { Ionicons } from '@expo/vector-icons';
 
 export default function WebViewScreen() {
   const [isLoading, setIsLoading] = useState(true);

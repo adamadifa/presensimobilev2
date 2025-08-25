@@ -31,6 +31,7 @@ export default function SplashScreen() {
   const backgroundOpacity = useSharedValue(0);
 
   const navigateToMain = () => {
+    console.log('Navigating to webview...');
     router.replace('/webview');
   };
 
