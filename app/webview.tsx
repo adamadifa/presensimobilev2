@@ -1,8 +1,11 @@
+
+import { useLocationValidation } from '@/hooks/useLocationValidation';
+import { locationValidationScript } from '@/utils/locationValidation';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
-import React, { useRef, useState } from 'react';
-import { ActivityIndicator, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, BackHandler, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 
@@ -10,12 +13,17 @@ export default function WebViewScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [locationWarnings, setLocationWarnings] = useState<string[]>([]);
   const webViewRef = useRef<WebView>(null);
+  const { checkFakeGPS } = useLocationValidation();
+  
+  // Interval untuk monitoring berkelanjutan
+  const monitoringIntervalRef = useRef<number | null>(null);
   
   // Default URL jika tidak ada parameter
-  const webUrl = 'https://dashboard.holchick.com';
+  const webUrl = 'https://presensi.sembawapresensi.site/';
 
-  // JavaScript to enable camera and location permissions
+  // JavaScript to enable camera and location permissions + validation
   const injectedJavaScript = `
     // Enable camera access
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -61,6 +69,8 @@ export default function WebViewScreen() {
       });
     }
     
+    ${locationValidationScript}
+    
     true;
   `;
 
@@ -84,6 +94,101 @@ export default function WebViewScreen() {
     }
   };
 
+  // Fungsi untuk monitoring fake GPS secara berkelanjutan
+  const startContinuousMonitoring = () => {
+    // Hentikan interval sebelumnya jika ada
+    if (monitoringIntervalRef.current) {
+      clearInterval(monitoringIntervalRef.current);
+    }
+
+    // Mulai monitoring setiap 10 detik
+    monitoringIntervalRef.current = setInterval(async () => {
+      try {
+        const isFake = await checkFakeGPS();
+        if (isFake) {
+          console.log('🚨 Fake GPS detected during continuous monitoring!');
+          setLocationWarnings(prev => [...prev, 'Fake GPS detected during monitoring']);
+          
+                   // Notifikasi sederhana
+         Alert.alert(
+           '🚨 Fake GPS Terdeteksi!',
+           'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
+           [
+             { 
+               text: 'Coba Lagi', 
+               onPress: () => {
+                 handleRetry();
+               }
+             },
+             { 
+               text: 'Keluar Aplikasi', 
+               style: 'destructive',
+               onPress: () => {
+                 // Keluar aplikasi
+                 BackHandler.exitApp();
+               }
+             }
+           ]
+         );
+        }
+      } catch (error) {
+        console.error('Error in continuous monitoring:', error);
+      }
+    }, 10000); // Check setiap 10 detik
+  };
+
+  const stopContinuousMonitoring = () => {
+    if (monitoringIntervalRef.current) {
+      clearInterval(monitoringIntervalRef.current);
+      monitoringIntervalRef.current = null;
+    }
+  };
+
+  const handleRetry = async () => {
+    const isFake = await checkFakeGPS();
+    if (!isFake) {
+      // Jika sudah tidak fake GPS, lanjutkan monitoring
+      startContinuousMonitoring();
+    } else {
+             // Jika masih fake GPS, tampilkan alert lagi
+       Alert.alert(
+         '🚨 Fake GPS Terdeteksi!',
+         'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
+         [
+           { 
+             text: 'Coba Lagi', 
+             onPress: () => {
+               handleRetry();
+             }
+           },
+           { 
+             text: 'Keluar Aplikasi', 
+             style: 'destructive',
+             onPress: () => {
+               BackHandler.exitApp();
+             }
+           }
+         ]
+       );
+    }
+  };
+
+
+
+  // Mulai monitoring saat komponen mount
+  useEffect(() => {
+    // Mulai monitoring setelah 5 detik (memberikan waktu untuk WebView load)
+    const startTimer = setTimeout(() => {
+      startContinuousMonitoring();
+    }, 5000);
+
+    // Cleanup saat komponen unmount
+    return () => {
+      clearTimeout(startTimer);
+      stopContinuousMonitoring();
+    };
+  }, []);
+
   const handleLoadStart = () => {
     setIsLoading(true);
     setHasError(false);
@@ -96,6 +201,47 @@ export default function WebViewScreen() {
   const handleError = () => {
     setIsLoading(false);
     setHasError(true);
+  };
+
+  const handleMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      
+      if (data.type === 'LOCATION_VALIDATION_FAILED') {
+        console.log('🚨 Location validation failed:', data.issues);
+        setLocationWarnings(prev => [...prev, ...data.issues]);
+        
+        // Hentikan monitoring sementara
+        stopContinuousMonitoring();
+        
+                 // Notifikasi sederhana tanpa komponen kompleks
+         Alert.alert(
+           '🚨 Fake GPS Terdeteksi!',
+           'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
+           [
+             { 
+               text: 'Coba Lagi', 
+               onPress: () => {
+                 handleRetry();
+               }
+             },
+             { 
+               text: 'Keluar Aplikasi', 
+               style: 'destructive',
+               onPress: () => {
+                 BackHandler.exitApp();
+               }
+             }
+           ]
+         );
+      }
+      
+      if (data.type === 'CHECK_FAKE_GPS_APPS') {
+        console.log('Checking for fake GPS apps:', data.apps);
+      }
+    } catch (error) {
+      console.log('Error parsing WebView message:', error);
+    }
   };
 
   const handleRefresh = () => {
@@ -156,6 +302,7 @@ export default function WebViewScreen() {
           // Allow all navigation
           return true;
         }}
+        onMessage={handleMessage}
               />
       
       {/* Refresh Button */}
@@ -177,6 +324,8 @@ export default function WebViewScreen() {
           <Text style={styles.loadingText}>Memuat...</Text>
         </View>
       )}
+
+      {/* Simple Location Warning - menggunakan Alert saja */}
     </SafeAreaView>
   );
 }

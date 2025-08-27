@@ -1,7 +1,8 @@
+import { useLocationValidation } from '@/hooks/useLocationValidation';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, BackHandler, StyleSheet, Text, View } from 'react-native';
 import Animated, {
     Easing,
     interpolate,
@@ -13,11 +14,12 @@ import Animated, {
 } from 'react-native-reanimated';
 
 export default function SplashScreen() {
+  const { validateLocation } = useLocationValidation();
+
   // Animasi untuk logo
   const logoScale = useSharedValue(0);
   const logoOpacity = useSharedValue(0);
   const logoY = useSharedValue(50);
-  const logoBounceY = useSharedValue(0);
 
   // Animasi untuk efek riak air
   const ripple1Scale = useSharedValue(0);
@@ -35,6 +37,34 @@ export default function SplashScreen() {
     router.replace('/webview');
   };
 
+  const handleLocationValidation = async () => {
+    const isValid = await validateLocation();
+    if (!isValid) {
+             // Tampilkan alert sederhana jika fake GPS terdeteksi
+       Alert.alert(
+         '🚨 Fake GPS Terdeteksi!',
+         'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
+         [
+           { 
+             text: 'Coba Lagi', 
+             onPress: () => {
+               handleLocationValidation();
+             }
+           },
+           { 
+             text: 'Keluar Aplikasi', 
+             style: 'destructive',
+             onPress: () => {
+               BackHandler.exitApp();
+             }
+           }
+         ]
+       );
+    } else {
+      navigateToMain();
+    }
+  };
+
   useEffect(() => {
     // Animasi background muncul
     backgroundOpacity.value = withTiming(1, { duration: 800 });
@@ -50,33 +80,6 @@ export default function SplashScreen() {
       damping: 8,
       stiffness: 120,
     });
-
-    // Animasi bouncing memantul yang halus - DITONAKTIFKAN
-    // setTimeout(() => {
-    //   // Animasi scale bouncing
-    //   logoScale.value = withRepeat(
-    //     withSpring(1.15, { 
-    //       damping: 3, 
-    //       stiffness: 60, 
-    //       mass: 1.2,
-    //       overshootClamping: false,
-    //     }),
-    //     -1,
-    //     true,
-    //   );
-      
-    //   // Animasi Y-axis bouncing untuk efek memantul
-    //   logoBounceY.value = withRepeat(
-    //     withSpring(-8, { 
-    //       damping: 4, 
-    //       stiffness: 80, 
-    //       mass: 0.8,
-    //       overshootClamping: false,
-    //     }),
-    //     -1,
-    //     true,
-    //   );
-    // }, 1500);
 
     // Animasi riak air yang lebih realistis
     const startRippleAnimation = () => {
@@ -128,9 +131,9 @@ export default function SplashScreen() {
     // Ulangi animasi riak setiap 3 detik
     const rippleInterval = setInterval(startRippleAnimation, 3000);
 
-    // Navigasi ke halaman utama setelah 4 detik
+    // Validasi lokasi dan navigasi ke halaman utama setelah 4 detik
     const navigationTimer = setTimeout(() => {
-      runOnJS(navigateToMain)();
+      runOnJS(handleLocationValidation)();
     }, 4000);
 
     return () => {
@@ -142,7 +145,6 @@ export default function SplashScreen() {
     logoOpacity,
     logoScale,
     logoY,
-    logoBounceY,
     ripple1Opacity,
     ripple1Scale,
     ripple2Opacity,
@@ -210,24 +212,24 @@ export default function SplashScreen() {
       <Animated.View style={[styles.ripple, ripple2Style]} />
       <Animated.View style={[styles.ripple, ripple3Style]} />
       
-             {/* Logo */}
-       <Animated.View style={[styles.logoContainer, logoAnimatedStyle]}>
-         <Image
-           source={require('../assets/images/splash-icon.png')}
-           style={styles.logo}
-           contentFit="contain"
-         />
-       </Animated.View>
+      {/* Logo */}
+      <Animated.View style={[styles.logoContainer, logoAnimatedStyle]}>
+        <Image
+          source={require('../assets/images/splash-icon.png')}
+          style={styles.logo}
+          contentFit="contain"
+        />
+      </Animated.View>
       
       {/* Text loading */}
-      <Animated.Text style={[styles.loadingText, { opacity: logoOpacity }]}>
+      <Text style={styles.loadingText}>
         Presensi Mobile
-      </Animated.Text>
+      </Text>
       
       {/* Subtitle */}
-      <Animated.Text style={[styles.subtitle, { opacity: logoOpacity }]}>
+      <Text style={styles.subtitle}>
         Sistem Presensi Digital
-      </Animated.Text>
+      </Text>
     </View>
   );
 }
