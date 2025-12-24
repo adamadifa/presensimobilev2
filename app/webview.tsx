@@ -1,11 +1,20 @@
 
-import { useLocationValidation } from '@/hooks/useLocationValidation';
+import { useDeveloperOptions } from '@/hooks/useDeveloperOptions';
 import { locationValidationScript } from '@/utils/locationValidation';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 
@@ -13,15 +22,14 @@ export default function WebViewScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [locationWarnings, setLocationWarnings] = useState<string[]>([]);
   const webViewRef = useRef<WebView>(null);
-  const { checkFakeGPS } = useLocationValidation();
-  
+  const { checkDeveloperOptions } = useDeveloperOptions();
+
   // Interval untuk monitoring berkelanjutan
-  const monitoringIntervalRef = useRef<number | null>(null);
-  
+  const monitoringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Default URL jika tidak ada parameter
-  const webUrl = 'https://presensi.sembawapresensi.site/';
+  const webUrl = 'https://presensi.adamadifa.site';
 
   // JavaScript to enable camera and location permissions + validation
   const injectedJavaScript = `
@@ -79,10 +87,10 @@ export default function WebViewScreen() {
     try {
       // Request camera permission
       const cameraPermission = await Camera.requestCameraPermissionsAsync();
-      
+
       // Request location permission
       const locationPermission = await Location.requestForegroundPermissionsAsync();
-      
+
       if (cameraPermission.status === 'granted' && locationPermission.status === 'granted') {
         console.log('All permissions granted');
       } else {
@@ -94,8 +102,8 @@ export default function WebViewScreen() {
     }
   };
 
-  // Fungsi untuk monitoring fake GPS secara berkelanjutan
-  const startContinuousMonitoring = () => {
+  // Fungsi untuk monitoring developer options secara berkelanjutan
+  const startContinuousMonitoring = useCallback(() => {
     // Hentikan interval sebelumnya jika ada
     if (monitoringIntervalRef.current) {
       clearInterval(monitoringIntervalRef.current);
@@ -104,38 +112,31 @@ export default function WebViewScreen() {
     // Mulai monitoring setiap 10 detik
     monitoringIntervalRef.current = setInterval(async () => {
       try {
-        const isFake = await checkFakeGPS();
-        if (isFake) {
-          console.log('🚨 Fake GPS detected during continuous monitoring!');
-          setLocationWarnings(prev => [...prev, 'Fake GPS detected during monitoring']);
-          
-                   // Notifikasi sederhana
-         Alert.alert(
-           '🚨 Fake GPS Terdeteksi!',
-           'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
-           [
-             { 
-               text: 'Coba Lagi', 
-               onPress: () => {
-                 handleRetry();
-               }
-             },
-             { 
-               text: 'Keluar Aplikasi', 
-               style: 'destructive',
-               onPress: () => {
-                 // Keluar aplikasi
-                 BackHandler.exitApp();
-               }
-             }
-           ]
-         );
+        // Check developer options
+        const isDevOptionsEnabled = await checkDeveloperOptions();
+        if (isDevOptionsEnabled) {
+          console.log('⚠️ Developer options detected during continuous monitoring!');
+          Alert.alert(
+            '⚠️ Opsi Pengembang Terdeteksi!',
+            'Aplikasi tidak dapat berjalan saat opsi pengembang aktif. Silakan nonaktifkan opsi pengembang di pengaturan perangkat Anda.',
+            [
+              {
+                text: 'Tutup Aplikasi',
+                style: 'destructive',
+                onPress: () => {
+                  BackHandler.exitApp();
+                }
+              }
+            ],
+            { cancelable: false }
+          );
+          return; // Stop monitoring jika developer options terdeteksi
         }
       } catch (error) {
         console.error('Error in continuous monitoring:', error);
       }
     }, 10000); // Check setiap 10 detik
-  };
+  }, [checkDeveloperOptions]);
 
   const stopContinuousMonitoring = () => {
     if (monitoringIntervalRef.current) {
@@ -144,34 +145,6 @@ export default function WebViewScreen() {
     }
   };
 
-  const handleRetry = async () => {
-    const isFake = await checkFakeGPS();
-    if (!isFake) {
-      // Jika sudah tidak fake GPS, lanjutkan monitoring
-      startContinuousMonitoring();
-    } else {
-             // Jika masih fake GPS, tampilkan alert lagi
-       Alert.alert(
-         '🚨 Fake GPS Terdeteksi!',
-         'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
-         [
-           { 
-             text: 'Coba Lagi', 
-             onPress: () => {
-               handleRetry();
-             }
-           },
-           { 
-             text: 'Keluar Aplikasi', 
-             style: 'destructive',
-             onPress: () => {
-               BackHandler.exitApp();
-             }
-           }
-         ]
-       );
-    }
-  };
 
 
 
@@ -187,7 +160,7 @@ export default function WebViewScreen() {
       clearTimeout(startTimer);
       stopContinuousMonitoring();
     };
-  }, []);
+  }, [startContinuousMonitoring]);
 
   const handleLoadStart = () => {
     setIsLoading(true);
@@ -198,7 +171,34 @@ export default function WebViewScreen() {
     setIsLoading(false);
   };
 
-  const handleError = () => {
+  const handleError = (syntheticEvent: any) => {
+    const { nativeEvent } = syntheticEvent;
+    console.error('WebView error:', nativeEvent);
+    console.error('Error details:', {
+      code: nativeEvent.code,
+      description: nativeEvent.description,
+      domain: nativeEvent.domain,
+      url: nativeEvent.url,
+    });
+    setIsLoading(false);
+    // Set error hanya jika benar-benar gagal
+    if (nativeEvent.description && !nativeEvent.description.includes('net::ERR_ABORTED')) {
+      setHasError(true);
+    }
+  };
+
+  const handleHttpError = (syntheticEvent: any) => {
+    const { nativeEvent } = syntheticEvent;
+    console.error('WebView HTTP error:', nativeEvent.statusCode, nativeEvent.url);
+    // Hanya set error untuk status code 4xx dan 5xx
+    if (nativeEvent.statusCode >= 400) {
+      setIsLoading(false);
+      setHasError(true);
+    }
+  };
+
+  const handleRenderProcessGone = () => {
+    console.error('WebView render process crashed');
     setIsLoading(false);
     setHasError(true);
   };
@@ -206,39 +206,8 @@ export default function WebViewScreen() {
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      
-      if (data.type === 'LOCATION_VALIDATION_FAILED') {
-        console.log('🚨 Location validation failed:', data.issues);
-        setLocationWarnings(prev => [...prev, ...data.issues]);
-        
-        // Hentikan monitoring sementara
-        stopContinuousMonitoring();
-        
-                 // Notifikasi sederhana tanpa komponen kompleks
-         Alert.alert(
-           '🚨 Fake GPS Terdeteksi!',
-           'Sistem mendeteksi penggunaan fake GPS. Silakan nonaktifkan fake GPS.',
-           [
-             { 
-               text: 'Coba Lagi', 
-               onPress: () => {
-                 handleRetry();
-               }
-             },
-             { 
-               text: 'Keluar Aplikasi', 
-               style: 'destructive',
-               onPress: () => {
-                 BackHandler.exitApp();
-               }
-             }
-           ]
-         );
-      }
-      
-      if (data.type === 'CHECK_FAKE_GPS_APPS') {
-        console.log('Checking for fake GPS apps:', data.apps);
-      }
+      // Handler untuk message dari WebView jika diperlukan di masa depan
+      console.log('WebView message:', data);
     } catch (error) {
       console.log('Error parsing WebView message:', error);
     }
@@ -247,12 +216,12 @@ export default function WebViewScreen() {
   const handleRefresh = () => {
     setIsRefreshing(true);
     setHasError(false);
-    
+
     // Reload webview
     if (webViewRef.current) {
       webViewRef.current.reload();
     }
-    
+
     // Reset refreshing state after a short delay
     setTimeout(() => {
       setIsRefreshing(false);
@@ -264,12 +233,54 @@ export default function WebViewScreen() {
     requestPermissions();
   }, []);
 
+  // Check developer options saat aplikasi dimulai
+  useEffect(() => {
+    const checkDevOptions = async () => {
+      const isEnabled = await checkDeveloperOptions();
+      if (isEnabled) {
+        Alert.alert(
+          '⚠️ Opsi Pengembang Terdeteksi!',
+          'Aplikasi tidak dapat berjalan saat opsi pengembang aktif. Silakan nonaktifkan opsi pengembang di pengaturan perangkat Anda.',
+          [
+            {
+              text: 'Tutup Aplikasi',
+              style: 'destructive',
+              onPress: () => {
+                BackHandler.exitApp();
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      }
+    };
+
+    // Check setelah 1 detik untuk memastikan hook sudah siap
+    const timer = setTimeout(() => {
+      checkDevOptions();
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [checkDeveloperOptions]);
+
   if (hasError) {
     return (
       <SafeAreaView style={styles.errorContainer}>
         <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
         <Text style={styles.errorText}>Gagal memuat halaman web</Text>
         <Text style={styles.errorSubtext}>Periksa koneksi internet Anda</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            setHasError(false);
+            setIsLoading(true);
+            if (webViewRef.current) {
+              webViewRef.current.reload();
+            }
+          }}
+        >
+          <Text style={styles.retryButtonText}>Coba Lagi</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -277,7 +288,7 @@ export default function WebViewScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-            <WebView
+      <WebView
         ref={webViewRef}
         source={{ uri: webUrl }}
         style={styles.webview}
@@ -298,13 +309,20 @@ export default function WebViewScreen() {
         onLoadStart={handleLoadStart}
         onLoadEnd={handleLoadEnd}
         onError={handleError}
+        onHttpError={handleHttpError}
+        onRenderProcessGone={handleRenderProcessGone}
         onShouldStartLoadWithRequest={(request: WebViewNavigation) => {
           // Allow all navigation
           return true;
         }}
         onMessage={handleMessage}
-              />
-      
+        sharedCookiesEnabled={true}
+        thirdPartyCookiesEnabled={true}
+        mixedContentMode="always"
+        originWhitelist={['*']}
+        allowsBackForwardNavigationGestures={true}
+      />
+
       {/* Refresh Button */}
       <TouchableOpacity
         style={styles.refreshButton}
@@ -371,6 +389,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6c757d',
     textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    backgroundColor: '#1e3a8a',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   refreshButton: {
     position: 'absolute',
